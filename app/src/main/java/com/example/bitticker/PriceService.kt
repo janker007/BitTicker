@@ -61,16 +61,26 @@ class PriceService : Service() {
         val statusBarHeight = getStatusBarHeight()
         val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
 
+        // 计算宽度：容纳8个字符
+        val textView = LayoutInflater.from(this).inflate(R.layout.float_window, null) as TextView
+        textView.textSize = prefs.getFloat("font_size", 16f) // 使用设置的字体大小
+        val paint = textView.paint
+        val sampleText = "12345678" // 8个字符
+        val textWidth = paint.measureText(sampleText).toInt()
+        val padding = 16 // 左右各8dp的内边距，转换为像素
+        val windowWidth = textWidth + padding * 2 // 总宽度
+
         params = WindowManager.LayoutParams(
-            (displayMetrics.widthPixels / 3),
-            statusBarHeight,
+            windowWidth, // 动态计算的宽度
+            statusBarHeight, // 高度与状态栏相同
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (displayMetrics.widthPixels / 4) - (width / 2) // 左侧一半居中
-            y = 0 // 顶部对齐
+            // 右边框与屏幕中线对齐
+            x = (displayMetrics.widthPixels / 2) - windowWidth
+            y = -statusBarHeight // 覆盖状态栏
             alpha = prefs.getFloat("alpha", 0.7f)
         }
 
@@ -82,6 +92,7 @@ class PriceService : Service() {
             background.setTint(Color.parseColor(prefs.getString("bg_color", "#80000000")))
         }
 
+        // 拖动实现
         floatView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX: Int = 0
             private var initialY: Int = 0
