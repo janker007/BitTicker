@@ -6,9 +6,9 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 
-class SettingsActivity : ComponentActivity() {
+class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
@@ -21,7 +21,7 @@ class SettingsActivity : ComponentActivity() {
         val saveButton = findViewById<Button>(R.id.save_button)
 
         val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
-        refreshInput.setText((prefs.getLong("refresh_interval", 60_000L) / 1000).toString()) // 转为秒
+        refreshInput.setText((prefs.getLong("refresh_interval", 60_000L) / 1000).toString())
         alphaInput.setText(prefs.getFloat("alpha", 0.7f).toString())
         fontSizeInput.setText(prefs.getFloat("font_size", 16f).toString())
         fontColorInput.setText(prefs.getString("font_color", "#FFFFFF") ?: "#FFFFFF")
@@ -31,15 +31,20 @@ class SettingsActivity : ComponentActivity() {
             val editor = prefs.edit()
             try {
                 val refreshSeconds = refreshInput.text.toString().toLongOrNull() ?: 60L
+                val alpha = alphaInput.text.toString().toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.7f
+                val fontSize = fontSizeInput.text.toString().toFloatOrNull()?.coerceIn(8f, 50f) ?: 16f
+                val fontColor = fontColorInput.text.toString().ifEmpty { "#FFFFFF" }
+                val bgColor = bgColorInput.text.toString().ifEmpty { "#80000000" }
+                Color.parseColor(fontColor) // 验证颜色
+                Color.parseColor(bgColor)
                 editor.putLong("refresh_interval", refreshSeconds * 1000)
-                editor.putFloat("alpha", alphaInput.text.toString().toFloatOrNull()?.coerceIn(0f, 1f) ?: 0.7f)
-                editor.putFloat("font_size", fontSizeInput.text.toString().toFloatOrNull()?.coerceIn(8f, 50f) ?: 16f)
-                editor.putString("font_color", fontColorInput.text.toString().ifEmpty { "#FFFFFF" })
-                editor.putString("bg_color", bgColorInput.text.toString().ifEmpty { "#80000000" })
+                editor.putFloat("alpha", alpha)
+                editor.putFloat("font_size", fontSize)
+                editor.putString("font_color", fontColor)
+                editor.putString("bg_color", bgColor)
                 editor.apply()
                 Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
 
-                // 重启服务
                 stopService(Intent(this, PriceService::class.java))
                 startForegroundService(Intent(this, PriceService::class.java))
             } catch (e: Exception) {

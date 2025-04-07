@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -21,21 +22,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.os.Build
 
 class PriceService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatView: View
     private var lastPrice: Double? = null
     private var currentCurrency = "usd"
-    private var refreshInterval = 60_000L // 默认60秒
+    private var refreshInterval = 60_000L
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var params: WindowManager.LayoutParams
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        setupForegroundNotification() // 恢复调用
+        setupForegroundNotification()
         setupFloatingWindow()
         startPriceUpdates()
     }
@@ -49,7 +49,7 @@ class PriceService : Service() {
 
         val notification = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_bitcoin)
-            .setContentTitle("BitTicker") // 简化为应用名
+            .setContentTitle("BitTicker")
             .build()
 
         startForeground(1, notification)
@@ -62,16 +62,15 @@ class PriceService : Service() {
         val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
 
         params = WindowManager.LayoutParams(
-            (displayMetrics.widthPixels / 3), // 宽度为屏幕1/3
-            statusBarHeight, // 高度与状态栏相同
+            (displayMetrics.widthPixels / 3),
+            statusBarHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            // 默认位置调整
-            x = (displayMetrics.widthPixels / 4) - (width / 2) // 左侧一半的中心
-            y = 0 // 顶部对齐屏幕顶端，覆盖状态栏
+            x = (displayMetrics.widthPixels / 4) - (width / 2) // 左侧一半居中
+            y = 0 // 顶部对齐
             alpha = prefs.getFloat("alpha", 0.7f)
         }
 
@@ -83,7 +82,6 @@ class PriceService : Service() {
             background.setTint(Color.parseColor(prefs.getString("bg_color", "#80000000")))
         }
 
-        // 拖动实现
         floatView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX: Int = 0
             private var initialY: Int = 0
@@ -110,13 +108,11 @@ class PriceService : Service() {
             }
         })
 
-        // 点击切换货币
         floatView.setOnClickListener {
             currentCurrency = if (currentCurrency == "usd") "cny" else "usd"
             updatePrice()
         }
 
-        // 长按关闭服务
         floatView.setOnLongClickListener {
             stopSelf()
             true
@@ -141,8 +137,7 @@ class PriceService : Service() {
                 val price = response.bitcoin[currentCurrency] ?: return@launch
                 withContext(Dispatchers.Main) {
                     val textView = floatView.findViewById<TextView>(R.id.price_text)
-                    //textView.text = price.toLong().toString() //String.format("%.0f", price)
-                    textView.text = if (currentCurrency == "usd") "$${price.toLong()}" else "¥${price.toLong()}"
+                    textView.text = price.toLong().toString()
                     textView.setTextColor(when {
                         lastPrice == null -> Color.WHITE
                         price > lastPrice!! -> Color.GREEN
