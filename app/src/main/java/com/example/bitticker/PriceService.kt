@@ -1,5 +1,6 @@
 package com.example.bitticker
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -44,6 +45,7 @@ class PriceService : Service() {
         registerScreenReceiver() // 注册屏幕状态监听
     }
 
+    @SuppressLint("ForegroundServiceType")
     private fun setupForegroundNotification() {
         val channelId = "bitticker_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
