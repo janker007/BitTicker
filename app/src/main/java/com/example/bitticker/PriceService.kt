@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
@@ -31,6 +33,7 @@ class PriceService : Service() {
     private var refreshInterval = 60_000L
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var params: WindowManager.LayoutParams
+    private lateinit var screenReceiver: BroadcastReceiver // 添加屏幕状态监听
 
     override fun onCreate() {
         super.onCreate()
@@ -38,6 +41,7 @@ class PriceService : Service() {
         setupForegroundNotification()
         setupFloatingWindow()
         startPriceUpdates()
+        registerScreenReceiver() // 注册屏幕状态监听
     }
 
     private fun setupForegroundNotification() {
@@ -63,24 +67,23 @@ class PriceService : Service() {
 
         // 计算宽度：容纳8个字符
         val textView = LayoutInflater.from(this).inflate(R.layout.float_window, null) as TextView
-        textView.textSize = prefs.getFloat("font_size", 16f) // 使用设置的字体大小
+        textView.textSize = prefs.getFloat("font_size", 16f)
         val paint = textView.paint
-        val sampleText = "12345678" // 8个字符
+        val sampleText = "12345678"
         val textWidth = paint.measureText(sampleText).toInt()
-        val padding = 16 // 左右各8dp的内边距，转换为像素
-        val windowWidth = textWidth + padding * 2 // 总宽度
+        val padding = 16
+        val windowWidth = textWidth + padding * 2
 
         params = WindowManager.LayoutParams(
-            windowWidth, // 动态计算的宽度
-            statusBarHeight, // 高度与状态栏相同
+            windowWidth,
+            statusBarHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            // 右边框与屏幕中线对齐
             x = (displayMetrics.widthPixels / 2) - windowWidth
-            y = -statusBarHeight // 覆盖状态栏
+            y = -statusBarHeight
             alpha = prefs.getFloat("alpha", 0.7f)
         }
 
@@ -92,7 +95,6 @@ class PriceService : Service() {
             background.setTint(Color.parseColor(prefs.getString("bg_color", "#80000000")))
         }
 
-        // 拖动实现
         floatView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX: Int = 0
             private var initialY: Int = 0
@@ -170,11 +172,34 @@ class PriceService : Service() {
         return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 24
     }
 
+    // 注册屏幕状态监听
+    private fun registerScreenReceiver() {
+        screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> {
+                        // 屏幕打开时立即更新价格
+                        updatePrice()
+                    }
+                    Intent.ACTION_SCREEN_OFF -> {
+                        // 可选：屏幕关闭时暂停更新（当前无需处理）
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(screenReceiver, filter)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
         windowManager.removeView(floatView)
+        unregisterReceiver(screenReceiver) // 注销监听
     }
 }
