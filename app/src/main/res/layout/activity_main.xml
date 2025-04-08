@@ -22,7 +22,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="悬浮窗开关"
+                android:text="@string/floating_window_switch"
                 android:textSize="16sp"
                 android:textColor="#E0E0E0" />
             <Switch
@@ -50,7 +50,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="设置"
+                    android:text="@string/settings"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
@@ -60,7 +60,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="透明度（0-100%）"
+                    android:text="@string/alpha_label"
                     android:textSize="16sp"
                     android:textColor="#E0E0E0" />
                 <SeekBar
@@ -74,7 +74,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="字体大小（sp）"
+                    android:text="@string/font_size_label"
                     android:textSize="16sp"
                     android:textColor="#E0E0E0"
                     android:layout_marginTop="16dp" />
@@ -84,37 +84,183 @@
                     android:layout_height="wrap_content"
                     android:backgroundTint="#FFFFFF" />
 
-                <!-- 字体颜色 -->
+                <!-- 涨跌判断时间间隔 -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="字体颜色"
+                    android:text="@string/price_comparison_interval_label"
                     android:textSize="16sp"
                     android:textColor="#E0E0E0"
                     android:layout_marginTop="16dp" />
-                <Button
-                    android:id="@+id/font_color_button"
-                    android:layout_width="wrap_content"
+                <Spinner
+                    android:id="@+id/price_comparison_interval_spinner"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="选择颜色"
-                    android:backgroundTint="#424242"
-                    android:textColor="#FFFFFF" />
+                    android:backgroundTint="#FFFFFF" />
 
-                <!-- 背景颜色 -->
+                <!-- 颜色设置 -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="背景颜色"
+                    android:text="@string/color_settings_label"
                     android:textSize="16sp"
                     android:textColor="#E0E0E0"
                     android:layout_marginTop="16dp" />
-                <Button
-                    android:id="@+id/bg_color_button"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/font_color_label"
+                        android:textColor="#E0E0E0"
+                        android:textSize="14sp" />
+                    <Button
+                        android:id="@+id/font_color_button"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="16dp"
+                        android:background="@android:color/white" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/up_color_label"
+                        android:textColor="#E0E0E0"
+                        android:textSize="14sp" />
+                    <Button
+                        android:id="@+id/up_color_button"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:background="@android:color/holo_green_light" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/bg_color_label"
+                        android:textColor="#E0E0E0"
+                        android:textSize="14sp" />
+                    <Button
+                        android:id="@+id/bg_color_button"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="16dp"
+                        android:background="@android:color/black" />
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/down_color_label"
+                        android:textColor="#E0E0E0"
+                        android:textSize="14sp" />
+                    <Button
+                        android:id="@+id/down_color_button"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:background="@android:color/holo_red_light" />
+                </LinearLayout>
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- 价格预警 -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="4dp"
+            app:cardBackgroundColor="#1E1E1E"
+            android:layout_marginTop="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/price_alert_label"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF" />
+                    <Switch
+                        android:id="@+id/price_alert_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:checked="false" />
+                </LinearLayout>
+
+                <!-- 价格上限 -->
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="选择颜色"
-                    android:backgroundTint="#424242"
-                    android:textColor="#FFFFFF" />
+                    android:text="@string/max_price_label"
+                    android:textSize="16sp"
+                    android:textColor="#E0E0E0"
+                    android:layout_marginTop="16dp" />
+                <EditText
+                    android:id="@+id/max_price_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#FFFFFF" />
+
+                <!-- 价格下限 -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/min_price_label"
+                    android:textSize="16sp"
+                    android:textColor="#E0E0E0"
+                    android:layout_marginTop="16dp" />
+                <EditText
+                    android:id="@+id/min_price_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#FFFFFF" />
+
+                <!-- 震动警示 -->
+                <CheckBox
+                    android:id="@+id/vibration_alert_checkbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/vibration_alert_label"
+                    android:textColor="#E0E0E0"
+                    android:checked="true" />
+
+                <!-- 声音警示 -->
+                <CheckBox
+                    android:id="@+id/sound_alert_checkbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/sound_alert_label"
+                    android:textColor="#E0E0E0"
+                    android:checked="true" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
@@ -124,19 +270,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="WebSocket状态：正常"
+            android:text="@string/websocket_status_normal"
             android:textColor="#FF5555"
             android:textSize="14sp" />
-
-        <!-- 应用按钮 -->
-        <Button
-            android:id="@+id/apply_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="16dp"
-            android:text="应用"
-            android:backgroundTint="#424242"
-            android:textColor="#FFFFFF" />
     </LinearLayout>
 </ScrollView>

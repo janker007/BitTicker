@@ -10,8 +10,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.Vibrator
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -24,17 +28,38 @@ import okhttp3.Request
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
-import org.json.JSONArray // 添加缺失的导入
+import org.json.JSONArray
 
 class PriceService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatView: View
     private var lastPrice: Double? = null
+    private var referencePrice: Double? = null
+    private var lastUpdateTime: Long = 0
+    private var priceComparisonInterval: Long = 3
+    private var maxPrice: Float = 0f
+    private var minPrice: Float = 0f
+    private var enablePriceAlert: Boolean = false
+    private var enableVibrationAlert: Boolean = true
+    private var enableSoundAlert: Boolean = true
+    private var isPriceAlertActive: Boolean = false
+    private var lastAlertTime: Long = 0
     private var currentCurrency = "usd"
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var screenReceiver: BroadcastReceiver
     private lateinit var webSocket: WebSocket
     private var isWebSocketConnected = false
+    private var isServiceStopping = false
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val alertHandler = Handler(Looper.getMainLooper())
+    private val alertRunnable = object : Runnable {
+        override fun run() {
+            if (isPriceAlertActive) {
+                triggerAlert()
+                alertHandler.postDelayed(this, 1000) // 每隔1秒触发一次
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -43,18 +68,26 @@ class PriceService : Service() {
         setupFloatingWindow()
         setupWebSocket()
         registerScreenReceiver()
+
+        val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
+        priceComparisonInterval = prefs.getLong("price_comparison_interval", 3L)
+        maxPrice = prefs.getFloat("max_price", 0f)
+        minPrice = prefs.getFloat("min_price", 0f)
+        enablePriceAlert = prefs.getBoolean("price_alert_enabled", false)
+        enableVibrationAlert = prefs.getBoolean("vibration_alert", true)
+        enableSoundAlert = prefs.getBoolean("sound_alert", true)
     }
 
     private fun setupForegroundNotification() {
         val channelId = "bitticker_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "BitTicker Service", NotificationManager.IMPORTANCE_MIN)
+            val channel = NotificationChannel(channelId, getString(R.string.app_name), NotificationManager.IMPORTANCE_MIN)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
 
         val notification = Notification.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_bitcoin)
-            .setContentTitle("BitTicker")
+            .setContentTitle(getString(R.string.app_name))
             .build()
 
         startForeground(1, notification)
@@ -92,7 +125,7 @@ class PriceService : Service() {
             setTextSize(prefs.getFloat("font_size", 16f))
             setTextColor(Color.parseColor(prefs.getString("font_color", "#FFFFFF")))
             setBackgroundResource(R.drawable.rounded_background)
-            background.setTint(Color.parseColor(prefs.getString("bg_color", "#80000000")))
+            background.setTint(Color.parseColor(prefs.getString("bg_color", "#000000")))
         }
 
         floatView.setOnTouchListener(object : View.OnTouchListener {
@@ -156,18 +189,22 @@ class PriceService : Service() {
                 if (data.has("data")) {
                     val ticker = data.getJSONArray("data").getJSONObject(0)
                     val price = ticker.getString("last").toDoubleOrNull() ?: return
-                    updatePriceUI(price)
+                    uiHandler.post { updatePriceUI(price) }
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 isWebSocketConnected = false
-                sendErrorMessage("连接关闭：$reason (code: $code)")
+                if (!isServiceStopping) {
+                    uiHandler.post { sendErrorMessage("连接关闭：$reason (code: $code)") }
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
                 isWebSocketConnected = false
-                sendErrorMessage("连接失败：${t.message}")
+                if (!isServiceStopping) {
+                    uiHandler.post { sendErrorMessage("连接失败：${t.message}") }
+                }
             }
         })
     }
@@ -175,13 +212,67 @@ class PriceService : Service() {
     private fun updatePriceUI(price: Double) {
         val textView = floatView.findViewById<TextView>(R.id.price_text)
         textView.text = price.toString()
+
+        val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
+        val upColor = Color.parseColor(prefs.getString("up_color", "#00FF00"))
+        val downColor = Color.parseColor(prefs.getString("down_color", "#FF0000"))
+
+        val currentTime = System.currentTimeMillis() / 1000
+        if (referencePrice == null || (currentTime - lastUpdateTime) >= priceComparisonInterval) {
+            referencePrice = price
+            lastUpdateTime = currentTime
+        }
+
         textView.setTextColor(when {
-            lastPrice == null -> Color.WHITE
-            price > lastPrice!! -> Color.GREEN
-            price < lastPrice!! -> Color.RED
+            referencePrice == null -> Color.WHITE
+            price > referencePrice!! -> upColor
+            price < referencePrice!! -> downColor
             else -> Color.WHITE
         })
         lastPrice = price
+
+        // 价格预警
+        checkPriceAlert(price)
+    }
+
+    private fun checkPriceAlert(price: Double) {
+        // 如果价格预警未启用，或者上限和下限都为 0，则不预警
+        if (!enablePriceAlert || (maxPrice == 0f && minPrice == 0f)) {
+            isPriceAlertActive = false
+            alertHandler.removeCallbacks(alertRunnable)
+            return
+        }
+
+        // 检查是否需要触发告警
+        if ((maxPrice > 0 && price >= maxPrice) || (minPrice > 0 && price <= minPrice)) {
+            if (!isPriceAlertActive) {
+                isPriceAlertActive = true
+                alertHandler.post(alertRunnable) // 开始每秒告警
+            }
+        } else {
+            isPriceAlertActive = false
+            alertHandler.removeCallbacks(alertRunnable)
+        }
+    }
+
+    private fun triggerAlert() {
+        // 震动警示
+        if (enableVibrationAlert) {
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(200)
+            }
+        }
+
+        // 声音警示
+        if (enableSoundAlert) {
+            val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val ringtone = RingtoneManager.getRingtone(applicationContext, notification)
+            ringtone.play()
+        }
     }
 
     private fun sendErrorMessage(message: String) {
@@ -193,7 +284,7 @@ class PriceService : Service() {
     }
 
     private fun updatePriceUIWithError() {
-        floatView.findViewById<TextView>(R.id.price_text).text = "Error"
+        floatView.findViewById<TextView>(R.id.price_text).text = getString(R.string.error_text)
     }
 
     private fun getStatusBarHeight(): Int {
@@ -219,8 +310,10 @@ class PriceService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        isServiceStopping = true
+        alertHandler.removeCallbacks(alertRunnable)
         super.onDestroy()
-        webSocket.close(1000, "Service stopped")
+        webSocket.close(1000, getString(R.string.service_stopped))
         windowManager.removeView(floatView)
         unregisterReceiver(screenReceiver)
     }
