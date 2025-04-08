@@ -1,6 +1,5 @@
 package com.example.bitticker
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,40 +11,40 @@ import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONObject
+import org.json.JSONArray // 添加缺失的导入
 
 class PriceService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatView: View
     private var lastPrice: Double? = null
     private var currentCurrency = "usd"
-    private var refreshInterval = 60_000L
-    private val handler = Handler(Looper.getMainLooper())
     private lateinit var params: WindowManager.LayoutParams
-    private lateinit var screenReceiver: BroadcastReceiver // 添加屏幕状态监听
+    private lateinit var screenReceiver: BroadcastReceiver
+    private lateinit var webSocket: WebSocket
+    private var isWebSocketConnected = false
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         setupForegroundNotification()
         setupFloatingWindow()
-        startPriceUpdates()
-        registerScreenReceiver() // 注册屏幕状态监听
+        setupWebSocket()
+        registerScreenReceiver()
     }
 
-    @SuppressLint("ForegroundServiceType")
     private fun setupForegroundNotification() {
         val channelId = "bitticker_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -67,7 +66,6 @@ class PriceService : Service() {
         val statusBarHeight = getStatusBarHeight()
         val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
 
-        // 计算宽度：容纳8个字符
         val textView = LayoutInflater.from(this).inflate(R.layout.float_window, null) as TextView
         textView.textSize = prefs.getFloat("font_size", 16f)
         val paint = textView.paint
@@ -125,7 +123,6 @@ class PriceService : Service() {
 
         floatView.setOnClickListener {
             currentCurrency = if (currentCurrency == "usd") "cny" else "usd"
-            updatePrice()
         }
 
         floatView.setOnLongClickListener {
@@ -134,39 +131,69 @@ class PriceService : Service() {
         }
     }
 
-    private fun startPriceUpdates() {
-        val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
-        refreshInterval = prefs.getLong("refresh_interval", 60_000L)
-        handler.post(object : Runnable {
-            override fun run() {
-                updatePrice()
-                handler.postDelayed(this, refreshInterval)
+    private fun setupWebSocket() {
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url("wss://ws.okx.com:8443/ws/v5/public")
+            .build()
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                isWebSocketConnected = true
+                val subMsg = JSONObject().apply {
+                    put("op", "subscribe")
+                    put("args", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("channel", "tickers")
+                            put("instId", if (currentCurrency == "usd") "BTC-USDT" else "BTC-USDT")
+                        })
+                    })
+                }
+                webSocket.send(subMsg.toString())
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val data = JSONObject(text)
+                if (data.has("data")) {
+                    val ticker = data.getJSONArray("data").getJSONObject(0)
+                    val price = ticker.getString("last").toDoubleOrNull() ?: return
+                    updatePriceUI(price)
+                }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                isWebSocketConnected = false
+                sendErrorMessage("连接关闭：$reason (code: $code)")
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                isWebSocketConnected = false
+                sendErrorMessage("连接失败：${t.message}")
             }
         })
     }
 
-    private fun updatePrice() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val response = RetrofitClient.priceApi.getBitcoinPrice(vsCurrencies = currentCurrency)
-                val price = response.bitcoin[currentCurrency] ?: return@launch
-                withContext(Dispatchers.Main) {
-                    val textView = floatView.findViewById<TextView>(R.id.price_text)
-                    textView.text = price.toLong().toString()
-                    textView.setTextColor(when {
-                        lastPrice == null -> Color.WHITE
-                        price > lastPrice!! -> Color.GREEN
-                        price < lastPrice!! -> Color.RED
-                        else -> Color.WHITE
-                    })
-                    lastPrice = price
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    floatView.findViewById<TextView>(R.id.price_text).text = "Error"
-                }
-            }
+    private fun updatePriceUI(price: Double) {
+        val textView = floatView.findViewById<TextView>(R.id.price_text)
+        textView.text = price.toString()
+        textView.setTextColor(when {
+            lastPrice == null -> Color.WHITE
+            price > lastPrice!! -> Color.GREEN
+            price < lastPrice!! -> Color.RED
+            else -> Color.WHITE
+        })
+        lastPrice = price
+    }
+
+    private fun sendErrorMessage(message: String) {
+        updatePriceUIWithError()
+        val intent = Intent("com.example.bitticker.WEBSOCKET_ERROR").apply {
+            putExtra("error_message", message)
         }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
+    private fun updatePriceUIWithError() {
+        floatView.findViewById<TextView>(R.id.price_text).text = "Error"
     }
 
     private fun getStatusBarHeight(): Int {
@@ -174,18 +201,11 @@ class PriceService : Service() {
         return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 24
     }
 
-    // 注册屏幕状态监听
     private fun registerScreenReceiver() {
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> {
-                        // 屏幕打开时立即更新价格
-                        updatePrice()
-                    }
-                    Intent.ACTION_SCREEN_OFF -> {
-                        // 可选：屏幕关闭时暂停更新（当前无需处理）
-                    }
+                if (intent?.action == Intent.ACTION_SCREEN_ON && isWebSocketConnected) {
+                    setupWebSocket()
                 }
             }
         }
@@ -200,8 +220,8 @@ class PriceService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        handler.removeCallbacksAndMessages(null)
+        webSocket.close(1000, "Service stopped")
         windowManager.removeView(floatView)
-        unregisterReceiver(screenReceiver) // 注销监听
+        unregisterReceiver(screenReceiver)
     }
 }
