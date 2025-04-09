@@ -63,69 +63,96 @@ class PriceService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        setupForegroundNotification()
-        setupFloatingWindow()
-        setupWebSocket()
-        registerScreenReceiver()
+        try {
+            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            setupForegroundNotification()
+            setupFloatingWindow()
+            setupWebSocket()
+            registerScreenReceiver()
 
-        val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
-        priceComparisonInterval = prefs.getLong("price_comparison_interval", 3L)
-        maxPrice = prefs.getFloat("max_price", 0f)
-        minPrice = prefs.getFloat("min_price", 0f)
-        enablePriceAlert = prefs.getBoolean("price_alert_enabled", false)
-        enableVibrationAlert = prefs.getBoolean("vibration_alert", true)
-        enableSoundAlert = prefs.getBoolean("sound_alert", true)
+            val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
+            priceComparisonInterval = prefs.getLong("price_comparison_interval", 3L)
+            maxPrice = prefs.getFloat("max_price", 0f)
+            minPrice = prefs.getFloat("min_price", 0f)
+            enablePriceAlert = prefs.getBoolean("price_alert_enabled", false)
+            enableVibrationAlert = prefs.getBoolean("vibration_alert", true)
+            enableSoundAlert = prefs.getBoolean("sound_alert", true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("PriceService onCreate 失败：${e.message}")
+        }
     }
 
     private fun setupForegroundNotification() {
         val channelId = "bitticker_service"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, getString(R.string.app_name), NotificationManager.IMPORTANCE_MIN)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { // API 26+
+            val channel = NotificationChannel(
+                channelId,
+                getString(R.string.app_name),
+                NotificationManager.IMPORTANCE_MIN
+            )
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
 
-        val notification = Notification.Builder(this, channelId)
-            .setSmallIcon(R.drawable.ic_bitcoin)
-            .setContentTitle(getString(R.string.app_name))
-            .build()
+        val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+                .setSmallIcon(R.drawable.ic_bitcoin)
+                .setContentTitle(getString(R.string.app_name))
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setSmallIcon(R.drawable.ic_bitcoin)
+                .setContentTitle(getString(R.string.app_name))
+                .build()
+        }
 
         startForeground(1, notification)
     }
 
-    private fun setupFloatingWindow() {
+    private fun setupFloatingWindow() = try {
         floatView = LayoutInflater.from(this).inflate(R.layout.float_window, null)
         val displayMetrics = resources.displayMetrics
-        val statusBarHeight = getStatusBarHeight()
+        val statusBarHeight = this.getStatusBarHeight()
         val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
 
-        val textView = LayoutInflater.from(this).inflate(R.layout.float_window, null) as TextView
+        val textView = floatView.findViewById<TextView>(R.id.price_text)
         textView.textSize = prefs.getFloat("font_size", 16f)
         val paint = textView.paint
-        val sampleText = "12345678"
+        val sampleText = "12345678.0" // 10 个字符的样本文本
         val textWidth = paint.measureText(sampleText).toInt()
-        val padding = 16
-        val windowWidth = textWidth + padding * 2
+        val textHeight = (paint.descent() - paint.ascent()).toInt() // 计算文本高度
+        val padding = 8 // 减少 padding，确保文本居中
+        val windowWidth = textWidth + padding * 2 // 宽度能够显示 10 个字符
+        val windowHeight = statusBarHeight // 高度与状态栏一致
 
         params = WindowManager.LayoutParams(
             windowWidth,
-            statusBarHeight,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            windowHeight,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (displayMetrics.widthPixels / 2) - windowWidth
-            y = -statusBarHeight
-            alpha = prefs.getFloat("alpha", 0.7f)
+            // 居中于屏幕左半边
+            val leftHalfWidth = displayMetrics.widthPixels / 2
+            x = (leftHalfWidth - windowWidth) / 2 // 左半边居中
+            y = 0 // 顶部与状态栏对齐
         }
 
         windowManager.addView(floatView, params)
         floatView.findViewById<TextView>(R.id.price_text).apply {
             setTextSize(prefs.getFloat("font_size", 16f))
-            setTextColor(Color.parseColor(prefs.getString("font_color", "#FFFFFF")))
+            val fontColor = Color.parseColor(prefs.getString("font_color", "#FF9800"))
+            setTextColor(fontColor) // 确保文字颜色完全不透明
             setBackgroundResource(R.drawable.rounded_background)
             background.setTint(Color.parseColor(prefs.getString("bg_color", "#000000")))
+            background.alpha = (prefs.getFloat("alpha", 0.7f) * 255).toInt() // 仅将透明度应用到背景
         }
 
         floatView.setOnTouchListener(object : View.OnTouchListener {
@@ -162,159 +189,194 @@ class PriceService : Service() {
             stopSelf()
             true
         }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        sendErrorMessage("设置悬浮窗失败：${e.message}")
+    }
+
+    private fun getStatusBarHeight(): Int {
+        var result = 0
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        if (resourceId > 0) {
+            result = resources.getDimensionPixelSize(resourceId)
+        }
+        return result
     }
 
     private fun setupWebSocket() {
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url("wss://ws.okx.com:8443/ws/v5/public")
-            .build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
-                isWebSocketConnected = true
-                val subMsg = JSONObject().apply {
-                    put("op", "subscribe")
-                    put("args", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("channel", "tickers")
-                            put("instId", if (currentCurrency == "usd") "BTC-USDT" else "BTC-USDT")
+        try {
+            val client = OkHttpClient()
+            val request = Request.Builder()
+                .url("wss://ws.okx.com:8443/ws/v5/public")
+                .build()
+            webSocket = client.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                    isWebSocketConnected = true
+                    val subMsg = JSONObject().apply {
+                        put("op", "subscribe")
+                        put("args", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("channel", "tickers")
+                                put("instId", if (currentCurrency == "usd") "BTC-USDT" else "BTC-USDT")
+                            })
                         })
-                    })
+                    }
+                    webSocket.send(subMsg.toString())
                 }
-                webSocket.send(subMsg.toString())
-            }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                val data = JSONObject(text)
-                if (data.has("data")) {
-                    val ticker = data.getJSONArray("data").getJSONObject(0)
-                    val price = ticker.getString("last").toDoubleOrNull() ?: return
-                    uiHandler.post { updatePriceUI(price) }
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val data = JSONObject(text)
+                    if (data.has("data")) {
+                        val ticker = data.getJSONArray("data").getJSONObject(0)
+                        val price = ticker.getString("last").toDoubleOrNull() ?: return
+                        uiHandler.post { updatePriceUI(price) }
+                    }
                 }
-            }
 
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                isWebSocketConnected = false
-                if (!isServiceStopping) {
-                    uiHandler.post { sendErrorMessage("连接关闭：$reason (code: $code)") }
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    isWebSocketConnected = false
+                    if (!isServiceStopping) {
+                        uiHandler.post { sendErrorMessage("连接关闭：$reason (code: $code)") }
+                    }
                 }
-            }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
-                isWebSocketConnected = false
-                if (!isServiceStopping) {
-                    uiHandler.post { sendErrorMessage("连接失败：${t.message}") }
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                    isWebSocketConnected = false
+                    if (!isServiceStopping) {
+                        uiHandler.post { sendErrorMessage("连接失败：${t.message}") }
+                    }
                 }
-            }
-        })
+            })
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("WebSocket 初始化失败：${e.message}")
+        }
     }
 
     private fun updatePriceUI(price: Double) {
-        val textView = floatView.findViewById<TextView>(R.id.price_text)
-        textView.text = price.toString()
+        try {
+            val textView = floatView.findViewById<TextView>(R.id.price_text)
+            textView.text = price.toString()
 
-        val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
-        val upColor = Color.parseColor(prefs.getString("up_color", "#00FF00"))
-        val downColor = Color.parseColor(prefs.getString("down_color", "#FF0000"))
+            val prefs = getSharedPreferences("BitTickerPrefs", MODE_PRIVATE)
+            val upColor = Color.parseColor(prefs.getString("up_color", "#00FF00"))
+            val downColor = Color.parseColor(prefs.getString("down_color", "#FF0000"))
 
-        val currentTime = System.currentTimeMillis() / 1000
-        if (referencePrice == null || (currentTime - lastUpdateTime) >= priceComparisonInterval) {
-            referencePrice = price
-            lastUpdateTime = currentTime
+            val currentTime = System.currentTimeMillis() / 1000
+            if (referencePrice == null || (currentTime - lastUpdateTime) >= priceComparisonInterval) {
+                referencePrice = price
+                lastUpdateTime = currentTime
+            }
+
+            textView.setTextColor(when {
+                referencePrice == null -> Color.WHITE
+                price > referencePrice!! -> upColor
+                price < referencePrice!! -> downColor
+                else -> Color.WHITE
+            })
+            lastPrice = price
+
+            checkPriceAlert(price)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("更新价格 UI 失败：${e.message}")
         }
-
-        textView.setTextColor(when {
-            referencePrice == null -> Color.WHITE
-            price > referencePrice!! -> upColor
-            price < referencePrice!! -> downColor
-            else -> Color.WHITE
-        })
-        lastPrice = price
-
-        // 价格预警
-        checkPriceAlert(price)
     }
 
     private fun checkPriceAlert(price: Double) {
-        // 如果价格预警未启用，或者上限和下限都为 0，则不预警
-        if (!enablePriceAlert || (maxPrice == 0f && minPrice == 0f)) {
-            isPriceAlertActive = false
-            alertHandler.removeCallbacks(alertRunnable)
-            return
-        }
-
-        // 检查是否需要触发告警
-        if ((maxPrice > 0 && price >= maxPrice) || (minPrice > 0 && price <= minPrice)) {
-            if (!isPriceAlertActive) {
-                isPriceAlertActive = true
-                alertHandler.post(alertRunnable) // 开始每秒告警
+        try {
+            if (!enablePriceAlert || (maxPrice == 0f && minPrice == 0f)) {
+                isPriceAlertActive = false
+                alertHandler.removeCallbacks(alertRunnable)
+                return
             }
-        } else {
-            isPriceAlertActive = false
-            alertHandler.removeCallbacks(alertRunnable)
+
+            if ((maxPrice > 0 && price >= maxPrice) || (minPrice > 0 && price <= minPrice)) {
+                if (!isPriceAlertActive) {
+                    isPriceAlertActive = true
+                    alertHandler.post(alertRunnable)
+                }
+            } else {
+                isPriceAlertActive = false
+                alertHandler.removeCallbacks(alertRunnable)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("价格预警检查失败：${e.message}")
         }
     }
 
     private fun triggerAlert() {
-        // 震动警示
-        if (enableVibrationAlert) {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
+        try {
+            if (enableVibrationAlert) {
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                 @Suppress("DEPRECATION")
                 vibrator.vibrate(200)
             }
-        }
 
-        // 声音警示
-        if (enableSoundAlert) {
-            val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val ringtone = RingtoneManager.getRingtone(applicationContext, notification)
-            ringtone.play()
+            if (enableSoundAlert) {
+                val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val ringtone = RingtoneManager.getRingtone(applicationContext, notification)
+                ringtone.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("触发告警失败：${e.message}")
         }
     }
 
     private fun sendErrorMessage(message: String) {
-        updatePriceUIWithError()
-        val intent = Intent("com.example.bitticker.WEBSOCKET_ERROR").apply {
-            putExtra("error_message", message)
+        try {
+            updatePriceUIWithError()
+            val intent = Intent("com.example.bitticker.WEBSOCKET_ERROR").apply {
+                putExtra("error_message", message)
+            }
+            LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
     private fun updatePriceUIWithError() {
-        floatView.findViewById<TextView>(R.id.price_text).text = getString(R.string.error_text)
-    }
-
-    private fun getStatusBarHeight(): Int {
-        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 24
+        try {
+            floatView.findViewById<TextView>(R.id.price_text).text = getString(R.string.error_text)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun registerScreenReceiver() {
-        screenReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == Intent.ACTION_SCREEN_ON && isWebSocketConnected) {
-                    setupWebSocket()
+        try {
+            screenReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == Intent.ACTION_SCREEN_ON && isWebSocketConnected) {
+                        setupWebSocket()
+                    }
                 }
             }
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+            registerReceiver(screenReceiver, filter)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendErrorMessage("注册屏幕接收器失败：${e.message}")
         }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_SCREEN_OFF)
-        }
-        registerReceiver(screenReceiver, filter)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        isServiceStopping = true
-        alertHandler.removeCallbacks(alertRunnable)
+        try {
+            isServiceStopping = true
+            alertHandler.removeCallbacks(alertRunnable)
+            webSocket.close(1000, getString(R.string.service_stopped))
+            windowManager.removeView(floatView)
+            unregisterReceiver(screenReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         super.onDestroy()
-        webSocket.close(1000, getString(R.string.service_stopped))
-        windowManager.removeView(floatView)
-        unregisterReceiver(screenReceiver)
     }
 }
